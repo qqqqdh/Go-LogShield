@@ -1,0 +1,6 @@
+2026-02-01T12:00:03Z service=web method=GET path=/wp-login.php ip=198.51.100.23 status=404 ua="scanbot/1.0"
+2026-02-01T12:00:07Z service=web method=GET path=/.env ip=198.51.100.23 status=403 ua="scanbot/1.0"
+2026-02-01T12:00:11Z service=web method=GET path=/admin ip=198.51.100.23 status=401 ua="scanbot/1.0"
+2026-02-01T12:00:15Z service=web method=GET path=/phpmyadmin ip=198.51.100.23 status=404 ua="scanbot/1.0"
+2026-02-01T12:00:19Z service=web method=GET path=/api/login ip=198.51.100.23 status=200 ua="scanbot/1.0"
+2026-02-01T12:00:23Z service=web method=GET path=/api/users ip=198.51.100.23 status=403 ua="scanbot/1.0"

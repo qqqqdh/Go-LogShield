@@ -1,74 +1,65 @@
-package normalizer
+package main
 
 import (
-	"errors"
-	"strings"
+	"bufio"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"time"
+
+	"go-logshield/internal/detector"
+	"go-logshield/internal/normalizer"
 )
 
-type Event struct {
-	TS      time.Time
-	Service string
-	Action  string
-	User    string
-	IP      string
-	Status  string
-	Path    string
-	RawLine string
-}
-
-func ParseLine(line string) (Event, error) {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return Event{}, errors.New("empty line")
-	}
-
-	parts := strings.Fields(line)
-	if len(parts) < 2 {
-		return Event{}, errors.New("invalid line format")
-	}
-
-	// 1) timestamp (첫 토큰)
-	ts, err := time.Parse(time.RFC3339, parts[0])
+func main() {
+	files, err := filepath.Glob("./logs/*.log")
 	if err != nil {
-		return Event{}, err
+		log.Fatal(err)
+	}
+	if len(files) == 0 {
+		log.Fatal("no log files found in ./logs/")
 	}
 
-	ev := Event{
-		TS:      ts,
-		RawLine: line,
-	}
+	// Step2: BRUTE_FORCE_LOGIN detector
+	bf := detector.NewBruteForceDetector(detector.BruteForceConfig{
+		Window:    20 * time.Second,
+		Threshold: 5,
+	})
 
-	// 2) key=value 토큰 파싱
-	for _, tok := range parts[1:] {
-		kv := strings.SplitN(tok, "=", 2)
-		if len(kv) != 2 {
-			continue
+	for _, f := range files {
+		fmt.Println("===", f, "===")
+
+		fp, err := os.Open(f)
+		if err != nil {
+			log.Fatal(err)
 		}
-		k, v := kv[0], kv[1]
-		v = strings.Trim(v, `"`)
 
-		switch k {
-		case "service":
-			ev.Service = v
-		case "action":
-			ev.Action = v
-		case "user":
-			ev.User = v
-		case "ip":
-			ev.IP = v
-		case "status":
-			ev.Status = v
-		case "path":
-			ev.Path = v
-			// web.log에는 method, ua도 있지만 Step 1에서는 무시해도 OK
+		sc := bufio.NewScanner(fp)
+		for sc.Scan() {
+			line := sc.Text()
+
+			ev, err := normalizer.ParseLine(line)
+			if err != nil {
+				fmt.Println("PARSE_ERR:", err, "line:", line)
+				continue
+			}
+
+			// (디버그 출력은 유지/삭제 자유)
+			fmt.Printf("%s service=%s action=%s user=%s ip=%s status=%s path=%s\n",
+				ev.TS.Format("15:04:05"),
+				ev.Service, ev.Action, ev.User, ev.IP, ev.Status, ev.Path,
+			)
+
+			// Step2: detect & alert
+			if msg, ok := bf.Process(ev); ok {
+				fmt.Println(msg)
+			}
 		}
-	}
 
-	// 최소 필수: service 없으면 의미가 애매해서 에러 처리
-	if ev.Service == "" {
-		return Event{}, errors.New("missing service field")
+		if err := sc.Err(); err != nil {
+			fmt.Println("SCAN_ERR:", err)
+		}
+		_ = fp.Close()
 	}
-
-	return ev, nil
 }

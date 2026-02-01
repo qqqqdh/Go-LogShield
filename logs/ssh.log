@@ -1,0 +1,7 @@
+2026-02-01T12:00:02Z service=ssh action=auth user=root ip=198.51.100.23 status=FAIL reason=publickey
+2026-02-01T12:00:06Z service=ssh action=auth user=root ip=198.51.100.23 status=FAIL reason=publickey
+2026-02-01T12:00:10Z service=ssh action=auth user=root ip=198.51.100.23 status=FAIL reason=publickey
+2026-02-01T12:00:14Z service=ssh action=auth user=root ip=198.51.100.23 status=FAIL reason=publickey
+2026-02-01T12:00:18Z service=ssh action=auth user=root ip=198.51.100.23 status=FAIL reason=publickey
+2026-02-01T12:00:22Z service=ssh action=auth user=root ip=198.51.100.23 status=FAIL reason=publickey
+2026-02-01T12:00:26Z service=ssh action=auth user=root ip=198.51.100.23 status=FAIL reason=publickey
