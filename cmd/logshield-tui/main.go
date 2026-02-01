@@ -218,7 +218,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	header := "Go-LogShield TUI (전용 터미널)\n"
+	header := "Go-LogShield TUI\n"
 	state := "RUNNING"
 	if m.paused {
 		state = "PAUSED"
