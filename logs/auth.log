@@ -8,3 +8,100 @@
 2026-02-01T12:00:40Z service=auth action=login user=bob ip=203.0.113.10 status=FAIL reason=bad_password
 2026-02-01T12:00:44Z service=auth action=login user=charlie ip=203.0.113.10 status=FAIL reason=bad_password
 2026-02-01T12:00:48Z service=auth action=login user=david ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:12Z service=auth action=login user=david ip=192.0.2.180 status=SUCCESS
+2026-02-01T10:11:13Z service=auth action=login user=david ip=192.0.2.35 status=SUCCESS
+2026-02-01T10:11:14Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:14Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:15Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:16Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:17Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:18Z service=auth action=login user=alice ip=203.0.113.10 status=SUCCESS mfa=SKIPPED
+2026-02-01T10:11:19Z service=auth action=password_change user=alice ip=203.0.113.10 status=SUCCESS
+2026-02-01T10:11:19Z service=auth action=login user=david ip=192.0.2.94 status=SUCCESS
+2026-02-01T10:11:19Z service=auth action=login user=david ip=192.0.2.151 status=SUCCESS
+2026-02-01T10:11:20Z service=auth action=login user=charlie ip=192.0.2.123 status=SUCCESS
+2026-02-01T10:11:21Z service=auth action=login user=bob ip=192.0.2.45 status=SUCCESS
+2026-02-01T10:11:25Z service=auth action=login user=charlie ip=192.0.2.38 status=SUCCESS
+2026-02-01T10:11:26Z service=auth action=login user=bob ip=192.0.2.149 status=SUCCESS
+2026-02-01T10:11:27Z service=auth action=login user=bob ip=192.0.2.18 status=SUCCESS
+2026-02-01T10:11:28Z service=auth action=login user=david ip=192.0.2.120 status=SUCCESS
+2026-02-01T10:11:29Z service=auth action=login user=bob ip=192.0.2.66 status=SUCCESS
+2026-02-01T10:11:30Z service=auth action=login user=charlie ip=192.0.2.169 status=SUCCESS
+2026-02-01T10:11:31Z service=auth action=login user=bob ip=192.0.2.83 status=SUCCESS
+2026-02-01T10:11:32Z service=auth action=login user=david ip=192.0.2.113 status=SUCCESS
+2026-02-01T10:11:32Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:33Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:34Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:35Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:36Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:36Z service=auth action=login user=alice ip=203.0.113.10 status=SUCCESS mfa=SKIPPED
+2026-02-01T10:11:37Z service=auth action=password_change user=alice ip=203.0.113.10 status=SUCCESS
+2026-02-01T10:11:37Z service=auth action=login user=david ip=192.0.2.171 status=SUCCESS
+2026-02-01T10:11:45Z service=auth action=login user=david ip=192.0.2.199 status=SUCCESS
+2026-02-01T10:11:46Z service=auth action=login user=david ip=192.0.2.171 status=SUCCESS
+2026-02-01T10:11:47Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:48Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:48Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:49Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:50Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:11:51Z service=auth action=login user=alice ip=203.0.113.10 status=SUCCESS mfa=SKIPPED
+2026-02-01T10:11:52Z service=auth action=password_change user=alice ip=203.0.113.10 status=SUCCESS
+2026-02-01T10:11:52Z service=auth action=login user=bob ip=192.0.2.66 status=SUCCESS
+2026-02-01T10:11:52Z service=auth action=login user=david ip=192.0.2.52 status=SUCCESS
+2026-02-01T10:11:53Z service=auth action=login user=charlie ip=192.0.2.23 status=SUCCESS
+2026-02-01T10:11:59Z service=auth action=login user=bob ip=192.0.2.97 status=SUCCESS
+2026-02-01T10:11:59Z service=auth action=login user=david ip=192.0.2.73 status=SUCCESS
+2026-02-01T10:12:00Z service=auth action=login user=bob ip=192.0.2.159 status=SUCCESS
+2026-02-01T10:12:01Z service=auth action=login user=david ip=192.0.2.54 status=SUCCESS
+2026-02-01T10:12:07Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:12:08Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:12:09Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:12:09Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:12:10Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:12:11Z service=auth action=login user=alice ip=203.0.113.10 status=SUCCESS mfa=SKIPPED
+2026-02-01T10:12:12Z service=auth action=password_change user=alice ip=203.0.113.10 status=SUCCESS
+2026-02-01T10:12:12Z service=auth action=login user=bob ip=192.0.2.161 status=SUCCESS
+2026-02-01T10:12:13Z service=auth action=login user=david ip=192.0.2.143 status=SUCCESS
+2026-02-01T10:12:14Z service=auth action=login user=david ip=192.0.2.120 status=SUCCESS
+2026-02-01T10:12:15Z service=auth action=login user=charlie ip=192.0.2.41 status=SUCCESS
+2026-02-01T10:12:16Z service=auth action=login user=charlie ip=192.0.2.157 status=SUCCESS
+2026-02-01T10:12:17Z service=auth action=login user=charlie ip=192.0.2.31 status=SUCCESS
+2026-02-01T10:12:17Z service=auth action=login user=david ip=192.0.2.18 status=SUCCESS
+2026-02-01T10:12:18Z service=auth action=login user=charlie ip=192.0.2.184 status=SUCCESS
+2026-02-01T10:12:19Z service=auth action=login user=charlie ip=192.0.2.66 status=SUCCESS
+2026-02-01T10:12:20Z service=auth action=login user=david ip=192.0.2.12 status=SUCCESS
+2026-02-01T10:12:21Z service=auth action=login user=bob ip=192.0.2.46 status=SUCCESS
+2026-02-01T10:12:22Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:12:23Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:12:24Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:12:24Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:12:25Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:12:26Z service=auth action=login user=alice ip=203.0.113.10 status=SUCCESS mfa=SKIPPED
+2026-02-01T10:12:27Z service=auth action=password_change user=alice ip=203.0.113.10 status=SUCCESS
+2026-02-01T10:12:27Z service=auth action=login user=charlie ip=192.0.2.14 status=SUCCESS
+2026-02-01T10:12:31Z service=auth action=login user=charlie ip=192.0.2.94 status=SUCCESS
+2026-02-01T10:12:32Z service=auth action=login user=david ip=192.0.2.151 status=SUCCESS
+2026-02-01T10:12:33Z service=auth action=login user=david ip=192.0.2.38 status=SUCCESS
+2026-02-01T10:12:34Z service=auth action=login user=david ip=192.0.2.157 status=SUCCESS
+2026-02-01T10:12:38Z service=auth action=login user=david ip=192.0.2.170 status=SUCCESS
+2026-02-01T10:12:39Z service=auth action=login user=david ip=192.0.2.166 status=SUCCESS
+2026-02-01T10:12:40Z service=auth action=login user=bob ip=192.0.2.177 status=SUCCESS
+2026-02-01T10:12:41Z service=auth action=login user=charlie ip=192.0.2.177 status=SUCCESS
+2026-02-01T10:12:42Z service=auth action=login user=david ip=192.0.2.188 status=SUCCESS
+2026-02-01T10:12:50Z service=auth action=login user=bob ip=192.0.2.32 status=SUCCESS
+2026-02-01T10:12:51Z service=auth action=login user=charlie ip=192.0.2.28 status=SUCCESS
+2026-02-01T10:12:52Z service=auth action=login user=charlie ip=192.0.2.164 status=SUCCESS
+2026-02-01T10:12:56Z service=auth action=login user=charlie ip=192.0.2.173 status=SUCCESS
+2026-02-01T10:12:57Z service=auth action=login user=david ip=192.0.2.125 status=SUCCESS
+2026-02-01T10:13:03Z service=auth action=login user=charlie ip=192.0.2.37 status=SUCCESS
+2026-02-01T10:13:03Z service=auth action=login user=charlie ip=192.0.2.193 status=SUCCESS
+2026-02-01T10:13:08Z service=auth action=login user=charlie ip=192.0.2.78 status=SUCCESS
+2026-02-01T10:13:21Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:13:22Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:13:22Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:13:23Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:13:24Z service=auth action=login user=alice ip=203.0.113.10 status=FAIL reason=bad_password
+2026-02-01T10:13:25Z service=auth action=login user=alice ip=203.0.113.10 status=SUCCESS mfa=SKIPPED
+2026-02-01T10:13:26Z service=auth action=password_change user=alice ip=203.0.113.10 status=SUCCESS
+2026-02-01T10:13:34Z service=auth action=login user=charlie ip=192.0.2.34 status=SUCCESS
+2026-02-01T10:13:35Z service=auth action=login user=charlie ip=192.0.2.110 status=SUCCESS
