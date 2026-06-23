@@ -18,7 +18,10 @@ type Event struct {
 }
 
 func ParseLine(line string) (Event, error) {
+	line = strings.ReplaceAll(line, "\n", "")
+	line = strings.ReplaceAll(line, "\r", "")
 	line = strings.TrimSpace(line)
+
 	if line == "" {
 		return Event{}, errors.New("empty line")
 	}

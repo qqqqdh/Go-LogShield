@@ -3,12 +3,14 @@ package detector
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"go-logshield/internal/normalizer"
 )
 
 type WebEnumDetector struct {
+	mu        sync.Mutex
 	window    time.Duration
 	threshold int
 	hits      map[string][]time.Time
@@ -28,6 +30,12 @@ func isSensitivePath(path string) bool {
 		"/admin",
 		"/.env",
 		"phpmyadmin",
+		"/.git",
+		"/backup",
+		"/config",
+		"/api/v1",
+		"/actuator",
+		"/server-status",
 	}
 	for _, t := range targets {
 		if strings.Contains(path, t) {
@@ -41,19 +49,28 @@ func isErrorStatus(status string) bool {
 	return status == "401" || status == "403" || status == "404"
 }
 
-func (d *WebEnumDetector) Process(ev normalizer.Event) (string, bool) {
+func (d *WebEnumDetector) Process(ev normalizer.Event) (Result, bool) {
 	if ev.Service != "web" {
-		return "", false
+		return Result{}, false
 	}
 	if ev.IP == "" || ev.Path == "" {
-		return "", false
+		return Result{}, false
 	}
 	if !isSensitivePath(ev.Path) || !isErrorStatus(ev.Status) {
-		return "", false
+		return Result{}, false
 	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
 	ip := ev.IP
 	now := ev.TS
+
+	// 맵 크기 상한 초과 시 새 IP 무시 (DoS 방지)
+	if _, exists := d.hits[ip]; !exists && len(d.hits) >= maxTrackedIPs {
+		return Result{}, false
+	}
+
 	d.hits[ip] = append(d.hits[ip], now)
 
 	cutoff := now.Add(-d.window)
@@ -73,6 +90,7 @@ func (d *WebEnumDetector) Process(ev normalizer.Event) (string, bool) {
 		first := list[0]
 		last := list[len(list)-1]
 
+		const ruleID = "WEB_ENUMERATION"
 		msg := fmt.Sprintf(
 			"⚠️ [경고][중간] 웹 경로 스캐닝(열거) 공격 의심\n"+
 				"- IP: %s\n"+
@@ -87,9 +105,16 @@ func (d *WebEnumDetector) Process(ev normalizer.Event) (string, bool) {
 			last.Format(time.RFC3339),
 		)
 
-		d.hits[ip] = nil
-		return msg, true
+		delete(d.hits, ip)
+		return Result{
+			RuleID:   ruleID,
+			Title:    "웹 경로 스캐닝(열거) 공격 의심",
+			Severity: "중간",
+			Message:  msg,
+			IP:       ip,
+			Service:  ev.Service,
+		}, true
 	}
 
-	return "", false
+	return Result{}, false
 }

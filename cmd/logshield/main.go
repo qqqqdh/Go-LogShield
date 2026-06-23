@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -13,13 +14,17 @@ import (
 )
 
 func main() {
+	logDir := flag.String("log-dir", "./logs", "분석할 로그 파일이 위치한 디렉터리")
+	flag.Parse()
+
 	// 1) 로그 파일 찾기
-	files, err := filepath.Glob("./logs/*.log")
+	pattern := filepath.Join(*logDir, "*.log")
+	files, err := filepath.Glob(pattern)
 	if err != nil {
 		log.Fatal(err)
 	}
 	if len(files) == 0 {
-		log.Fatal("no log files found in ./logs/")
+		log.Fatalf("no log files found in %s", *logDir)
 	}
 
 	// 2) Detector 초기화
@@ -71,18 +76,18 @@ func main() {
 			)
 
 			// 5) 로그인 브루트포스 탐지
-			if msg, ok := bruteForceDetector.Process(ev); ok {
-				fmt.Println(msg)
+			if r, ok := bruteForceDetector.Process(ev); ok {
+				fmt.Println(r.Message)
 			}
 
 			// 6) SSH 브루트포스 탐지
-			if msg, ok := sshBruteForceDetector.Process(ev); ok {
-				fmt.Println(msg)
+			if r, ok := sshBruteForceDetector.Process(ev); ok {
+				fmt.Println(r.Message)
 			}
 
 			// 7) 웹 경로 스캐닝 탐지
-			if msg, ok := webEnumDetector.Process(ev); ok {
-				fmt.Println(msg)
+			if r, ok := webEnumDetector.Process(ev); ok {
+				fmt.Println(r.Message)
 			}
 		}
 

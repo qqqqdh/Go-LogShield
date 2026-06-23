@@ -1,3 +1,5 @@
+//go:build demo
+
 package main
 
 import (
@@ -64,7 +66,6 @@ type savedMsg struct{ path string }
 type errMsg struct{ err error }
 
 func saveReportCmd(alerts []Alert) tea.Cmd {
-	// alerts를 복사해서 클로저에서 안전하게 사용
 	snapshot := make([]Alert, len(alerts))
 	copy(snapshot, alerts)
 
@@ -74,7 +75,7 @@ func saveReportCmd(alerts []Alert) tea.Cmd {
 			return errMsg{err: err}
 		}
 		path := "report.json"
-		if err := os.WriteFile(path, b, 0644); err != nil {
+		if err := os.WriteFile(path, b, 0600); err != nil {
 			return errMsg{err: err}
 		}
 		return savedMsg{path: path}
@@ -169,8 +170,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tickMsg:
-		// 데모: paused 아니면 가짜 경고를 주기적으로 추가
-		// 다음 스텝에서 여기만 "진짜 Detector -> Alert 채널"로 교체하면 됨.
 		if !m.paused {
 			if len(m.alerts) < 50 {
 				sev := "중간"
@@ -179,11 +178,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				// 3개 중 하나를 랜덤처럼 바꾸기(간단히 시간으로)
 				n := int(time.Now().UnixNano() % 3)
-				if n == 0 {
+
+				switch n {
+				case 0:
 					sev = "높음"
 					title = "로그인 브루트포스 의심(데모)"
 					msg = "동일 IP에서 로그인 실패가 짧은 시간에 반복되었습니다."
-				} else if n == 1 {
+				case 1:
 					sev = "높음"
 					title = "SSH 브루트포스 의심(데모)"
 					msg = "동일 IP에서 SSH 인증 실패가 짧은 시간에 반복되었습니다."
@@ -199,7 +200,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Service:  "demo",
 				})
 
-				// 새 경고가 들어오면 커서가 범위를 벗어나지 않게
 				m.selected = clamp(m.selected, 0, len(m.alerts)-1)
 			}
 		}

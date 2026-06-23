@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -75,7 +76,7 @@ func saveReportCmd(alerts []Alert) tea.Cmd {
 			return errMsg{err: err}
 		}
 		path := "report.json"
-		if err := os.WriteFile(path, b, 0644); err != nil {
+		if err := os.WriteFile(path, b, 0600); err != nil {
 			return errMsg{err: err}
 		}
 		return savedMsg{path: path}
@@ -94,33 +95,6 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-// 메시지에서 제목/심각도 뽑아내기(현재 detector는 msg string만 주니까 여기서 파싱)
-func extractTitleAndSeverity(msg string) (title, severity string) {
-	// 예:
-	// 🚨 [경고][높음] 로그인 브루트포스 의심
-	// ...
-	lines := strings.Split(msg, "\n")
-	if len(lines) == 0 {
-		return "경고", "중간"
-	}
-	head := strings.TrimSpace(lines[0])
-
-	// severity: [경고][높음] 같이 들어있음
-	severity = "중간"
-	if i := strings.Index(head, "[경고]["); i >= 0 {
-		j := strings.Index(head[i+len("[경고]["):], "]")
-		if j >= 0 {
-			severity = head[i+len("[경고][") : i+len("[경고][")+j]
-		}
-	}
-	// title: 마지막 "] " 이후
-	if k := strings.LastIndex(head, "] "); k >= 0 && k+2 < len(head) {
-		title = head[k+2:]
-	} else {
-		title = head
-	}
-	return title, severity
-}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch x := msg.(type) {
@@ -184,16 +158,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == viewList && len(m.alerts) > 0 {
 			switch k {
 			case "up", "k":
-				m.selected = clamp(m.selected-1, 0, len(m.alerts)-1)
-				return m, nil
-			case "down", "j":
+				// 화면은 역순(최신=맨위=높은 인덱스)이므로 위쪽 = 인덱스 증가
 				m.selected = clamp(m.selected+1, 0, len(m.alerts)-1)
 				return m, nil
+			case "down", "j":
+				m.selected = clamp(m.selected-1, 0, len(m.alerts)-1)
+				return m, nil
 			case "g":
-				m.selected = 0
+				// 화면 맨 위 = 가장 높은 인덱스
+				m.selected = len(m.alerts) - 1
 				return m, nil
 			case "G":
-				m.selected = len(m.alerts) - 1
+				// 화면 맨 아래 = 인덱스 0
+				m.selected = 0
 				return m, nil
 			}
 		}
@@ -307,19 +284,18 @@ func (m model) View() string {
 }
 
 // --- 실시간 tail + 분석 파이프라인 ---
-// p.Send(...)로 TUI에 메시지 push
-func startRealtimePipeline(p *tea.Program) error {
-	paths, err := filepath.Glob("./logs/*.log")
+// stopFn()을 호출하면 모든 tailer goroutine이 정리됩니다.
+func startRealtimePipeline(p *tea.Program, logDir string) (stopFn func(), err error) {
+	pattern := filepath.Join(logDir, "*.log")
+	paths, err := filepath.Glob(pattern)
 	if err != nil {
-		return err
+		return func() {}, err
 	}
 	if len(paths) == 0 {
-		// logs 폴더 없어도 실행은 되게 하고, 상태 라인으로 안내만 함
-		p.Send(errMsg{err: fmt.Errorf("./logs/*.log 파일을 찾지 못했습니다. logs 폴더를 만들고 로그를 생성해보세요.")})
-		return nil
+		p.Send(errMsg{err: fmt.Errorf("%s 파일을 찾지 못했습니다. 로그 디렉터리를 확인하세요.", pattern)})
+		return func() {}, nil
 	}
 
-	// detectors (TUI 프로세스 안에서 단일 고루틴으로 호출하면 경쟁조건 없이 안전)
 	bruteForceDetector := detector.NewBruteForceDetector(detector.BruteForceConfig{
 		Window:    20 * time.Second,
 		Threshold: 5,
@@ -327,24 +303,24 @@ func startRealtimePipeline(p *tea.Program) error {
 	sshBruteForceDetector := detector.NewSSHBruteForceDetector(30*time.Second, 6)
 	webEnumDetector := detector.NewWebEnumDetector(30*time.Second, 4)
 
-	// 각 파일 tailer 실행
+	tailers := make([]*tail.Tail, 0, len(paths))
+
 	for _, path := range paths {
 		path := path
+		t, err := tail.TailFile(path, tail.Config{
+			Follow:    true,
+			ReOpen:    true,
+			MustExist: false,
+			Poll:      true,
+			Logger:    tail.DiscardingLogger,
+		})
+		if err != nil {
+			p.Send(errMsg{err: fmt.Errorf("tail 실패 (%s): %w", path, err)})
+			continue
+		}
+		tailers = append(tailers, t)
 
 		go func() {
-			// Windows에서도 잘 따라가게 Poll + ReOpen 권장
-			t, err := tail.TailFile(path, tail.Config{
-				Follow:    true,
-				ReOpen:    true,
-				MustExist: false,
-				Poll:      true,
-				Logger:    tail.DiscardingLogger,
-			})
-			if err != nil {
-				p.Send(errMsg{err: fmt.Errorf("tail 실패 (%s): %w", path, err)})
-				return
-			}
-
 			for line := range t.Lines {
 				if line == nil {
 					continue
@@ -354,76 +330,72 @@ func startRealtimePipeline(p *tea.Program) error {
 					continue
 				}
 
-				// 이벤트 카운트 +1
 				p.Send(eventCountMsg{n: 1})
 
 				ev, err := normalizer.ParseLine(raw)
 				if err != nil {
-					// 파싱 에러는 상태라인만 살짝(도배 방지)
 					p.Send(errMsg{err: fmt.Errorf("parse error (%s): %v", path, err)})
 					continue
 				}
 
-				// 1) auth brute force
-				if msg, ok := bruteForceDetector.Process(ev); ok {
-					title, sev := extractTitleAndSeverity(msg)
-					p.Send(alertMsg{a: Alert{
-						TS:       time.Now(),
-						Severity: sev,
-						Title:    title,
-						Message:  msg,
-						IP:       ev.IP,
-						Service:  ev.Service,
-						RuleID:   "BRUTE_FORCE_LOGIN",
-					}})
+				// detector.Result를 직접 사용 — 메시지 파싱 불필요
+				detectors := []interface {
+					Process(normalizer.Event) (detector.Result, bool)
+				}{
+					bruteForceDetector,
+					sshBruteForceDetector,
+					webEnumDetector,
 				}
-
-				// 2) ssh brute force
-				if msg, ok := sshBruteForceDetector.Process(ev); ok {
-					title, sev := extractTitleAndSeverity(msg)
-					p.Send(alertMsg{a: Alert{
-						TS:       time.Now(),
-						Severity: sev,
-						Title:    title,
-						Message:  msg,
-						IP:       ev.IP,
-						Service:  ev.Service,
-						RuleID:   "SSH_BRUTE_FORCE",
-					}})
-				}
-
-				// 3) web enumeration
-				if msg, ok := webEnumDetector.Process(ev); ok {
-					title, sev := extractTitleAndSeverity(msg)
-					p.Send(alertMsg{a: Alert{
-						TS:       time.Now(),
-						Severity: sev,
-						Title:    title,
-						Message:  msg,
-						IP:       ev.IP,
-						Service:  ev.Service,
-						RuleID:   "WEB_ENUMERATION",
-					}})
+				for _, d := range detectors {
+					if r, ok := d.Process(ev); ok {
+						p.Send(alertMsg{a: Alert{
+							TS:       time.Now(),
+							Severity: r.Severity,
+							Title:    r.Title,
+							Message:  r.Message,
+							IP:       r.IP,
+							Service:  r.Service,
+							RuleID:   r.RuleID,
+						}})
+					}
 				}
 			}
 		}()
 	}
 
-	// 시작 안내
-	p.Send(errMsg{err: fmt.Errorf("실시간 tail 시작: %d개 파일 (./logs/*.log)", len(paths))})
-	return nil
+	p.Send(errMsg{err: fmt.Errorf("실시간 tail 시작: %d개 파일 (%s)", len(tailers), pattern)})
+
+	// 모든 tailer를 정리하는 함수 반환
+	return func() {
+		for _, t := range tailers {
+			_ = t.Stop()
+			t.Cleanup()
+		}
+	}, nil
 }
 
 func main() {
-	// AltScreen: 전용 터미널 느낌(전체 화면)
+	logDir := flag.String("log-dir", "./logs", "분석할 로그 파일이 위치한 디렉터리")
+	flag.Parse()
+
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 
-	// 실시간 파이프라인 시작(백그라운드 goroutine들이 p.Send로 화면 갱신)
+	var stopPipeline func()
 	go func() {
-		_ = startRealtimePipeline(p)
+		stop, err := startRealtimePipeline(p, *logDir)
+		if err != nil {
+			p.Send(errMsg{err: err})
+			stop = func() {}
+		}
+		stopPipeline = stop
 	}()
 
 	if _, err := p.Run(); err != nil {
 		panic(err)
+	}
+
+	// TUI 종료 후 tailer goroutine 정리
+	if stopPipeline != nil {
+		stopPipeline()
 	}
 }

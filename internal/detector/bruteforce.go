@@ -2,10 +2,14 @@ package detector
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"go-logshield/internal/normalizer"
 )
+
+// maxTrackedIPs: 맵 크기 상한 — 이 이상의 고유 IP는 추적하지 않아 메모리 고갈을 방지합니다.
+const maxTrackedIPs = 10_000
 
 type BruteForceConfig struct {
 	Window    time.Duration
@@ -13,36 +17,50 @@ type BruteForceConfig struct {
 }
 
 type BruteForceDetector struct {
-	cfg BruteForceConfig
-
-	// ip -> list of failure timestamps (sliding window)
+	mu       sync.Mutex
+	cfg      BruteForceConfig
 	failures map[string][]time.Time
+	blocked  map[string]time.Time
 }
 
 func NewBruteForceDetector(cfg BruteForceConfig) *BruteForceDetector {
 	return &BruteForceDetector{
 		cfg:      cfg,
 		failures: make(map[string][]time.Time),
+		blocked:  make(map[string]time.Time),
 	}
 }
 
-// Process returns (alertMessage, true) when alert triggers.
-func (d *BruteForceDetector) Process(ev normalizer.Event) (string, bool) {
+func (d *BruteForceDetector) Process(ev normalizer.Event) (Result, bool) {
 	// match: service=auth action=login status=FAIL group_by=ip
 	if ev.Service != "auth" || ev.Action != "login" || ev.Status != "FAIL" {
-		return "", false
+		return Result{}, false
 	}
 	if ev.IP == "" {
-		return "", false
+		return Result{}, false
 	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
 	ip := ev.IP
 	now := ev.TS
 
-	// 1) append current failure time
+	if blockTime, exists := d.blocked[ip]; exists {
+		if now.Sub(blockTime) < d.cfg.Window {
+			return Result{}, false
+		}
+		delete(d.blocked, ip)
+	}
+
+	// 1) 맵 크기 상한 초과 시 새 IP 무시 (DoS 방지)
+	if _, exists := d.failures[ip]; !exists && len(d.failures) >= maxTrackedIPs {
+		return Result{}, false
+	}
+	// 2) append current failure time
 	d.failures[ip] = append(d.failures[ip], now)
 
-	// 2) evict timestamps outside window
+	// 3) evict timestamps outside window
 	cutoff := now.Add(-d.cfg.Window)
 	tsList := d.failures[ip]
 
@@ -57,13 +75,13 @@ func (d *BruteForceDetector) Process(ev normalizer.Event) (string, bool) {
 	tsList = tsList[:j]
 	d.failures[ip] = tsList
 
-	// 3) threshold check
+	// 4) threshold check
 	if len(tsList) >= d.cfg.Threshold {
 		first := tsList[0]
 		last := tsList[len(tsList)-1]
 
-		ruleID := "BRUTE_FORCE_LOGIN"
-		sev := "high"
+		const ruleID = "BRUTE_FORCE_LOGIN"
+		const sev = "high"
 
 		msg := fmt.Sprintf(
 			"🚨 [경고][%s] %s\n- IP: %s\n- 실패 횟수: %d회 (%d초 윈도우)\n- 최초 시각: %s\n- 마지막 시각: %s\n- 설명: %s",
@@ -77,14 +95,20 @@ func (d *BruteForceDetector) Process(ev normalizer.Event) (string, bool) {
 			ruleDescKR(ruleID),
 		)
 
-		// (중요) 같은 윈도우에서 알림이 계속 도배되는 걸 막기 위해 리셋
-		// 가장 단순한 억제(suppress) 방식
-		d.failures[ip] = nil
+		delete(d.failures, ip)
+		d.blocked[ip] = now
 
-		return msg, true
+		return Result{
+			RuleID:   ruleID,
+			Title:    ruleTitleKR(ruleID),
+			Severity: severityKR(sev),
+			Message:  msg,
+			IP:       ip,
+			Service:  ev.Service,
+		}, true
 	}
 
-	return "", false
+	return Result{}, false
 }
 func severityKR(sev string) string {
 	switch sev {
