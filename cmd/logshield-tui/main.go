@@ -1,5 +1,3 @@
-//go:build demo
-
 package main
 
 import (
@@ -13,11 +11,10 @@ import (
 
 type Alert struct {
 	TS       time.Time `json:"ts"`
-	Severity string    `json:"severity"` // "낮음/중간/높음/치명"
+	Severity string    `json:"severity"`
 	Title    string    `json:"title"`
 	Message  string    `json:"message"`
 
-	// 확장용(나중에 detector에서 채울 수 있음)
 	IP      string `json:"ip,omitempty"`
 	RuleID  string `json:"rule_id,omitempty"`
 	Service string `json:"service,omitempty"`
@@ -36,9 +33,10 @@ type model struct {
 	mode     viewMode
 
 	alerts   []Alert
-	selected int // alerts index
+	selected int
 
-	statusLine string // 저장 완료/에러 같은 상태 메시지
+	statusLine string
+	height     int
 }
 
 func initialModel() model {
@@ -49,10 +47,10 @@ func initialModel() model {
 		alerts:     make([]Alert, 0, 50),
 		selected:   0,
 		statusLine: "",
+		height:     24,
 	}
 }
 
-// --- tick (데모용 이벤트 생성) ---
 type tickMsg time.Time
 
 func tick() tea.Cmd {
@@ -61,7 +59,6 @@ func tick() tea.Cmd {
 	})
 }
 
-// --- 저장 결과 메시지 ---
 type savedMsg struct{ path string }
 type errMsg struct{ err error }
 
@@ -102,7 +99,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		k := x.String()
 
-		// --- 글로벌 단축키 ---
 		switch k {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -121,25 +117,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.alerts = nil
 			m.selected = 0
 			m.mode = viewList
-			m.statusLine = "🧹 경고 목록 초기화"
+			m.statusLine = "\U0001f9f9 경고 목록 초기화"
 			return m, nil
 		case "s":
-			// 현재까지 경고를 report.json으로 저장
 			if len(m.alerts) == 0 {
 				m.statusLine = "저장할 경고가 없습니다."
 				return m, nil
 			}
-			m.statusLine = "💾 report.json 저장 중..."
+			m.statusLine = "\U0001f4be report.json 저장 중..."
 			return m, saveReportCmd(m.alerts)
 		case "esc":
-			// 상세보기에서 리스트로 돌아가기
 			if m.mode == viewDetail {
 				m.mode = viewList
 				m.statusLine = "리스트로 돌아옴"
 			}
 			return m, nil
 		case "enter":
-			// 선택된 항목 상세 보기 토글
 			if len(m.alerts) == 0 {
 				return m, nil
 			}
@@ -151,20 +144,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// --- 리스트 탐색 단축키(리스트 모드에서만) ---
+		// 화면은 역순(최신=맸위=높은 인덱스)이라 위쪽 = 인덱스 증가
 		if m.mode == viewList && len(m.alerts) > 0 {
 			switch k {
 			case "up", "k":
-				m.selected = clamp(m.selected-1, 0, len(m.alerts)-1)
-				return m, nil
-			case "down", "j":
 				m.selected = clamp(m.selected+1, 0, len(m.alerts)-1)
 				return m, nil
+			case "down", "j":
+				m.selected = clamp(m.selected-1, 0, len(m.alerts)-1)
+				return m, nil
 			case "g":
-				m.selected = 0
+				m.selected = len(m.alerts) - 1
 				return m, nil
 			case "G":
-				m.selected = len(m.alerts) - 1
+				m.selected = 0
 				return m, nil
 			}
 		}
@@ -176,7 +169,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				title := "웹 경로 스캐닝 의심(데모)"
 				msg := "민감 경로에 대한 접근이 반복되었습니다."
 
-				// 3개 중 하나를 랜덤처럼 바꾸기(간단히 시간으로)
 				n := int(time.Now().UnixNano() % 3)
 
 				switch n {
@@ -205,6 +197,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tick()
 
+	case tea.WindowSizeMsg:
+		m.height = x.Height
+		return m, nil
+
 	case savedMsg:
 		m.statusLine = fmt.Sprintf("✅ 저장 완료: %s", x.path)
 		return m, nil
@@ -217,12 +213,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func countLines(s string) int {
+	n := 0
+	for _, c := range s {
+		if c == '\n' {
+			n++
+		}
+	}
+	return n
+}
+
 func (m model) View() string {
-	header := "Go-LogShield TUI\n"
 	state := "RUNNING"
 	if m.paused {
 		state = "PAUSED"
 	}
+
+	header := "Go-LogShield TUI\n"
 	header += fmt.Sprintf("상태: %s | 경고 수: %d | 모드: %s\n",
 		state, len(m.alerts), map[viewMode]string{viewList: "LIST", viewDetail: "DETAIL"}[m.mode],
 	)
@@ -236,7 +243,7 @@ func (m model) View() string {
 		help += "단축키\n"
 		help += "  q: 종료   p: 일시정지/재개   c: 초기화   s: report.json 저장\n"
 		help += "  h/?: 도움말 토글   ↑/k ↓/j: 이동   enter: 상세보기 토글   esc: 리스트로\n"
-		help += "  g: 맨위   G: 맨아래\n"
+		help += "  g: 맸위   G: 맸아래\n"
 		help += "--------------------------------------------------\n"
 	}
 
@@ -244,15 +251,31 @@ func (m model) View() string {
 		return header + help + "(아직 경고 없음)\n"
 	}
 
-	// 리스트 모드
 	if m.mode == viewList {
-		out := header + help
-		out += "최근 경고 목록 (enter로 상세보기)\n\n"
+		listTitle := "최근 경고 목록 (enter로 상세보기)\n\n"
+		fixedLines := countLines(header+help+listTitle) + 1
 
-		// 최신이 아래로 쌓이는 대신, 화면에서는 “위에서 아래로” 보기 편하게 최근순 역순 출력
-		// 하지만 selected는 실제 slice index 기준이므로, 출력 시 매핑해줌.
-		// 출력 i번째 항목 -> 실제 index = len(alerts)-1-i
-		for i := 0; i < len(m.alerts); i++ {
+		listHeight := m.height - fixedLines
+		if listHeight < 1 {
+			listHeight = 1
+		}
+
+		// selected 의 화면 위치 (0 = 맸위 = 최신)
+		displaySelected := len(m.alerts) - 1 - m.selected
+
+		scrollTop := displaySelected - listHeight/2
+		if scrollTop < 0 {
+			scrollTop = 0
+		}
+		if scrollTop+listHeight > len(m.alerts) {
+			scrollTop = len(m.alerts) - listHeight
+			if scrollTop < 0 {
+				scrollTop = 0
+			}
+		}
+
+		out := header + help + listTitle
+		for i := scrollTop; i < scrollTop+listHeight && i < len(m.alerts); i++ {
 			idx := len(m.alerts) - 1 - i
 			a := m.alerts[idx]
 
@@ -268,7 +291,6 @@ func (m model) View() string {
 				a.TS.Format("15:04:05"),
 			)
 		}
-		out += "\n"
 		return out
 	}
 
@@ -276,7 +298,7 @@ func (m model) View() string {
 	a := m.alerts[m.selected]
 	out := header + help
 	out += "상세 보기 (esc 또는 enter로 돌아가기)\n\n"
-	out += fmt.Sprintf("🚨 제목: %s\n", a.Title)
+	out += fmt.Sprintf("\U0001f6a8 제목: %s\n", a.Title)
 	out += fmt.Sprintf("등급: %s\n", a.Severity)
 	out += fmt.Sprintf("시간: %s\n", a.TS.Format(time.RFC3339))
 	if a.IP != "" {
@@ -290,7 +312,6 @@ func (m model) View() string {
 	}
 	out += "\n설명\n"
 	out += fmt.Sprintf("  %s\n", a.Message)
-	out += "\n"
 	return out
 }
 
