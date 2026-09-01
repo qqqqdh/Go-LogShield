@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"go-logshield/internal/detector"
 	"go-logshield/internal/detector/llm"
 	"go-logshield/internal/normalizer"
+	"go-logshield/internal/pkg/watcher"
 )
 
 type FinalReport struct {
@@ -33,6 +36,7 @@ func main() {
 	hardTTL := flag.Duration("session-hard-ttl", 30*time.Minute, "Session Hard TTL before Epoch Rollover")
 	maxSessions := flag.Int("max-sessions", 1000, "Maximum active session contexts (LRU Eviction)")
 	printPrompt := flag.Bool("print-prompt", false, "Print the full generated LLM prompt to stdout for verification")
+	watchMode := flag.Bool("watch", false, "Enable real-time log file tailing mode")
 	reportFile := flag.String("report", "report.json", "Output JSON report file path")
 	flag.Parse()
 
@@ -76,7 +80,7 @@ func main() {
 			ModelName: *llmModel,
 			Timeout:   5 * time.Second,
 		})
-		fmt.Printf("🤖 [LogShield Phase 2] Hybrid LLM Engine Initialized (Model: %s, Anomaly Threshold: %d/32)\n", *llmModel, *anomalyThreshold)
+		fmt.Printf("🤖 [LogShield Phase 3 & 4] Hybrid LLM Engine Initialized (Model: %s, Anomaly Threshold: %d/32)\n", *llmModel, *anomalyThreshold)
 		fmt.Printf("   ⚙️ Session Key: IP|Service, Idle TTL: %v, Hard TTL: %v, Max Sessions: %d\n\n", *idleTTL, *hardTTL, *maxSessions)
 	}
 
@@ -89,104 +93,130 @@ func main() {
 	totalLogs := 0
 	promptCount := 0
 
-	// 4. Iterate over log files
-	for _, file := range files {
-		fmt.Printf("🔍 === Analyzing Log File: %s ===\n", file)
-
-		fp, err := os.Open(file)
+	processLogLine := func(line string) {
+		totalLogs++
+		ev, err := normalizer.ParseLine(line)
 		if err != nil {
-			log.Fatal(err)
+			return
 		}
 
-		scanner := bufio.NewScanner(fp)
-		for scanner.Scan() {
-			line := scanner.Text()
-			totalLogs++
+		ruleTriggered := false
 
-			// Normalize log into Event
-			ev, err := normalizer.ParseLine(line)
-			if err != nil {
-				continue
-			}
+		// A) Rule-Based Detection
+		if r, ok := bruteForceDetector.Process(ev); ok {
+			fmt.Printf("⚠️  [RULE DETECTED] %s\n", r.Message)
+			report.RuleBasedAlerts = append(report.RuleBasedAlerts, r)
+			ruleTriggered = true
+		}
+		if r, ok := sshBruteForceDetector.Process(ev); ok {
+			fmt.Printf("⚠️  [RULE DETECTED] %s\n", r.Message)
+			report.RuleBasedAlerts = append(report.RuleBasedAlerts, r)
+			ruleTriggered = true
+		}
+		if r, ok := webEnumDetector.Process(ev); ok {
+			fmt.Printf("⚠️  [RULE DETECTED] %s\n", r.Message)
+			report.RuleBasedAlerts = append(report.RuleBasedAlerts, r)
+			ruleTriggered = true
+		}
 
-			ruleTriggered := false
+		// B) Session Context Aggregation & Smart LLM Triggering
+		if *enableLLM {
+			session := sessionManager.ProcessEvent(ev, ev.TS)
+			shouldEval, stats, fingerprint := anomalyEvaluator.ShouldEvaluate(session, ruleTriggered, ev.TS)
 
-			// A) Rule-Based Intrusion Detection
-			if r, ok := bruteForceDetector.Process(ev); ok {
-				fmt.Printf("⚠️  [RULE DETECTED] %s\n", r.Message)
-				report.RuleBasedAlerts = append(report.RuleBasedAlerts, r)
-				ruleTriggered = true
-			}
-			if r, ok := sshBruteForceDetector.Process(ev); ok {
-				fmt.Printf("⚠️  [RULE DETECTED] %s\n", r.Message)
-				report.RuleBasedAlerts = append(report.RuleBasedAlerts, r)
-				ruleTriggered = true
-			}
-			if r, ok := webEnumDetector.Process(ev); ok {
-				fmt.Printf("⚠️  [RULE DETECTED] %s\n", r.Message)
-				report.RuleBasedAlerts = append(report.RuleBasedAlerts, r)
-				ruleTriggered = true
-			}
+			if shouldEval {
+				behaviorCtx := session.BuildContext()
+				promptInput := llm.PromptInput{
+					CorrelationKey:  session.CorrelationKey(),
+					Service:         session.Service,
+					SourceIP:        session.IP,
+					TotalEvents:     len(session.Events),
+					Stats:           stats,
+					BehaviorContext: behaviorCtx,
+				}
+				promptCount++
 
-			// B) Session Context Aggregation & Smart LLM Triggering
-			if *enableLLM {
-				session := sessionManager.ProcessEvent(ev, ev.TS)
-				shouldEval, stats, fingerprint := anomalyEvaluator.ShouldEvaluate(session, ruleTriggered, ev.TS)
+				if *printPrompt && promptCount == 1 {
+					generator := llm.NewPromptGenerator()
+					fullPrompt := generator.GeneratePromptWithInput(promptInput)
+					fmt.Println("==================== [GENERATED LLM PROMPT (PROTOTYPE VERIFICATION)] ====================")
+					fmt.Println(fullPrompt)
+					fmt.Println("=========================================================================================")
+				}
 
-				if shouldEval {
-					behaviorCtx := session.BuildContext()
-					promptInput := llm.PromptInput{
-						CorrelationKey: session.CorrelationKey(),
-						Service:        session.Service,
-						SourceIP:       session.IP,
-						TotalEvents:    len(session.Events),
-						Stats:          stats,
-						BehaviorContext: behaviorCtx,
-					}
-					promptCount++
+				iclResult, err := iclDetector.EvaluateContextWithInput(promptInput)
+				if err == nil {
+					report.LLMICLEvaluations = append(report.LLMICLEvaluations, iclResult)
 
-					if *printPrompt && promptCount == 1 {
-						generator := llm.NewPromptGenerator()
-						fullPrompt := generator.GeneratePromptWithInput(promptInput)
-						fmt.Println("==================== [GENERATED LLM PROMPT (PROTOTYPE VERIFICATION)] ====================")
-						fmt.Println(fullPrompt)
-						fmt.Println("=========================================================================================")
-					}
-
-					iclResult, err := iclDetector.EvaluateContextWithInput(promptInput)
-					if err == nil {
-						report.LLMICLEvaluations = append(report.LLMICLEvaluations, iclResult)
-
-						if iclResult.Result.IsAttack {
-							techID := "TXXXX"
-							severity := "high"
-							techSummary := "Multiple"
-							if len(iclResult.Result.Findings) > 0 {
-								techID = iclResult.Result.Findings[0].TechniqueID
-								severity = iclResult.Result.Findings[0].Severity
-								techSummary = fmt.Sprintf("%s (%s)", techID, iclResult.Result.Findings[0].AttackName)
-							}
-
-							// Check Stage 2 Alert Cooldown
-							if anomalyEvaluator.ShouldAlert(session.CorrelationKey(), techID, severity, ev.TS) {
-								fmt.Printf("\n🤖 [LLM ICL ALERT] Key: %s | Engine: %s (Status: %s) | Anomaly Score: %d/32\n", session.CorrelationKey(), iclResult.Engine, iclResult.EvaluationStatus, stats.TotalScore)
-								fmt.Printf("   🎯 Technique: %s | Severity: %s\n", techSummary, severity)
-								if len(iclResult.Result.Findings) > 0 {
-									fmt.Printf("   💡 Reasoning: %s\n", iclResult.Result.Findings[0].Reasoning)
-								}
-								fmt.Printf("   ⚙️  Model: %s (Fingerprint: %s)\n\n", iclResult.ModelUsed, fingerprint)
-							}
-						} else {
-							fmt.Printf("🟢 [LLM ICL NORMAL] Key: %s | Engine: %s | Anomaly Score: %d/32\n", session.CorrelationKey(), iclResult.Engine, stats.TotalScore)
+					if iclResult.Result.IsAttack {
+						techID := "TXXXX"
+						severity := "high"
+						techSummary := "Multiple"
+						if len(iclResult.Result.Findings) > 0 {
+							techID = iclResult.Result.Findings[0].TechniqueID
+							severity = iclResult.Result.Findings[0].Severity
+							techSummary = fmt.Sprintf("%s (%s)", techID, iclResult.Result.Findings[0].AttackName)
 						}
+
+						// Check Stage 2 Alert Cooldown
+						if anomalyEvaluator.ShouldAlert(session.CorrelationKey(), techID, severity, ev.TS) {
+							fmt.Printf("\n🤖 [LLM ICL ALERT] Key: %s | Engine: %s (Status: %s) | Anomaly Score: %d/32\n", session.CorrelationKey(), iclResult.Engine, iclResult.EvaluationStatus, stats.TotalScore)
+							fmt.Printf("   🎯 Technique: %s | Severity: %s\n", techSummary, severity)
+							if len(iclResult.Result.Findings) > 0 {
+								fmt.Printf("   💡 Reasoning: %s\n", iclResult.Result.Findings[0].Reasoning)
+							}
+							fmt.Printf("   ⚙️  Model: %s (Fingerprint: %s)\n\n", iclResult.ModelUsed, fingerprint)
+						}
+					} else {
+						fmt.Printf("🟢 [LLM ICL NORMAL] Key: %s | Engine: %s | Anomaly Score: %d/32\n", session.CorrelationKey(), iclResult.Engine, stats.TotalScore)
 					}
 				}
 			}
 		}
-
-		_ = fp.Close()
 	}
 
+	if *watchMode {
+		fmt.Printf("📡 [Real-Time Watcher] Tailing %d log files in real-time (Press Ctrl+C to stop)...\n", len(files))
+		logChan := make(chan string, 1000)
+		stopChan := make(chan struct{})
+
+		for _, file := range files {
+			f := file
+			go func() {
+				_ = watcher.TailFile(f, logChan, stopChan)
+			}()
+		}
+
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+		for {
+			select {
+			case line := <-logChan:
+				processLogLine(line)
+			case <-sigChan:
+				fmt.Println("\n🛑 Stopping real-time watcher...")
+				close(stopChan)
+				goto FINALIZE
+			}
+		}
+	} else {
+		// Batch processing mode
+		for _, file := range files {
+			fmt.Printf("🔍 === Analyzing Log File: %s ===\n", file)
+			fp, err := os.Open(file)
+			if err != nil {
+				log.Fatal(err)
+			}
+			scanner := bufio.NewScanner(fp)
+			for scanner.Scan() {
+				processLogLine(scanner.Text())
+			}
+			_ = fp.Close()
+		}
+	}
+
+FINALIZE:
 	report.TotalLogsAnalyzed = totalLogs
 	if sessionManager != nil {
 		report.ActiveSessions = sessionManager.ActiveSessionsCount()
