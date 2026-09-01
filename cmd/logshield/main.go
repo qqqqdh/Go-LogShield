@@ -16,10 +16,11 @@ import (
 )
 
 type FinalReport struct {
-	Timestamp          string                  `json:"timestamp"`
-	RuleBasedAlerts    []detector.Result       `json:"rule_based_alerts"`
-	LLMICLEvaluations []llm.ICLResult         `json:"llm_icl_evaluations"`
-	TotalLogsAnalyzed  int                     `json:"total_logs_analyzed"`
+	Timestamp         string            `json:"timestamp"`
+	RuleBasedAlerts   []detector.Result `json:"rule_based_alerts"`
+	LLMICLEvaluations []llm.ICLResult   `json:"llm_icl_evaluations"`
+	TotalLogsAnalyzed int               `json:"total_logs_analyzed"`
+	ActiveSessions    int               `json:"active_sessions_count"`
 }
 
 func main() {
@@ -27,7 +28,10 @@ func main() {
 	enableLLM := flag.Bool("llm", true, "Enable LLaMA 3.1 8B In-Context Learning (ICL) Detector")
 	ollamaURL := flag.String("ollama-url", "http://localhost:11434", "Ollama API Endpoint URL")
 	llmModel := flag.String("llm-model", "llama3.1:8b", "LLM Model Name for In-Context Learning")
-	windowSize := flag.Int("window-size", 5, "Sliding window size (event count) for behavior context aggregation")
+	anomalyThreshold := flag.Int("anomaly-threshold", 7, "Anomaly Score threshold (0-32) to trigger 2nd-stage LLM evaluation")
+	idleTTL := flag.Duration("session-idle-ttl", 10*time.Minute, "Session Idle TTL before expiration")
+	hardTTL := flag.Duration("session-hard-ttl", 30*time.Minute, "Session Hard TTL before Epoch Rollover")
+	maxSessions := flag.Int("max-sessions", 1000, "Maximum active session contexts (LRU Eviction)")
 	printPrompt := flag.Bool("print-prompt", false, "Print the full generated LLM prompt to stdout for verification")
 	reportFile := flag.String("report", "report.json", "Output JSON report file path")
 	flag.Parse()
@@ -50,22 +54,35 @@ func main() {
 	sshBruteForceDetector := detector.NewSSHBruteForceDetector(30*time.Second, 6)
 	webEnumDetector := detector.NewWebEnumDetector(30*time.Second, 4)
 
-	// 3. Initialize Paper-Based LLM In-Context Learning (ICL) Engine
-	var contextBuilder *llm.BehaviorContextBuilder
+	// 3. Initialize Paper-Based LLM In-Context Learning (ICL) Engine & Session Context Manager
+	var sessionManager *llm.SessionContextManager
+	var anomalyEvaluator *llm.AnomalyEvaluator
 	var iclDetector *llm.ICLDetector
+
 	if *enableLLM {
-		contextBuilder = llm.NewBehaviorContextBuilder(*windowSize)
+		sessionManager = llm.NewSessionContextManager(llm.SessionContextManagerConfig{
+			IdleTTL:             *idleTTL,
+			HardTTL:              *hardTTL,
+			MaxSessions:         *maxSessions,
+			MaxEventsPerSession: 20,
+		})
+		anomalyEvaluator = llm.NewAnomalyEvaluator(llm.AnomalyEvaluatorConfig{
+			Threshold:         *anomalyThreshold,
+			PreInferenceTTL:   30 * time.Second,
+			PostAlertCooldown: 60 * time.Second,
+		})
 		iclDetector = llm.NewICLDetector(llm.ICLDetectorConfig{
 			OllamaURL: *ollamaURL,
 			ModelName: *llmModel,
 			Timeout:   5 * time.Second,
 		})
-		fmt.Printf("🤖 [LogShield] LLM In-Context Learning Engine Initialized (Model: %s, Window: %d events)\n\n", *llmModel, *windowSize)
+		fmt.Printf("🤖 [LogShield Phase 2] Hybrid LLM Engine Initialized (Model: %s, Anomaly Threshold: %d/32)\n", *llmModel, *anomalyThreshold)
+		fmt.Printf("   ⚙️ Session Key: IP|Service, Idle TTL: %v, Hard TTL: %v, Max Sessions: %d\n\n", *idleTTL, *hardTTL, *maxSessions)
 	}
 
 	report := FinalReport{
-		Timestamp:          time.Now().Format(time.RFC3339),
-		RuleBasedAlerts:    make([]detector.Result, 0),
+		Timestamp:         time.Now().Format(time.RFC3339),
+		RuleBasedAlerts:   make([]detector.Result, 0),
 		LLMICLEvaluations: make([]llm.ICLResult, 0),
 	}
 
@@ -92,25 +109,32 @@ func main() {
 				continue
 			}
 
+			ruleTriggered := false
+
 			// A) Rule-Based Intrusion Detection
 			if r, ok := bruteForceDetector.Process(ev); ok {
 				fmt.Printf("⚠️  [RULE DETECTED] %s\n", r.Message)
 				report.RuleBasedAlerts = append(report.RuleBasedAlerts, r)
+				ruleTriggered = true
 			}
 			if r, ok := sshBruteForceDetector.Process(ev); ok {
 				fmt.Printf("⚠️  [RULE DETECTED] %s\n", r.Message)
 				report.RuleBasedAlerts = append(report.RuleBasedAlerts, r)
+				ruleTriggered = true
 			}
 			if r, ok := webEnumDetector.Process(ev); ok {
 				fmt.Printf("⚠️  [RULE DETECTED] %s\n", r.Message)
 				report.RuleBasedAlerts = append(report.RuleBasedAlerts, r)
+				ruleTriggered = true
 			}
 
-			// B) LLM In-Context Learning (ICL) Behavior Context Aggregation
+			// B) Session Context Aggregation & Smart LLM Triggering
 			if *enableLLM {
-				contextBuilder.AddEvent(ev)
-				if contextBuilder.IsFull() {
-					behaviorCtx := contextBuilder.BuildContext()
+				session := sessionManager.ProcessEvent(ev, ev.TS)
+				shouldEval, stats, fingerprint := anomalyEvaluator.ShouldEvaluate(session, ruleTriggered, ev.TS)
+
+				if shouldEval {
+					behaviorCtx := session.BuildContext()
 					promptCount++
 
 					if *printPrompt && promptCount == 1 {
@@ -124,35 +148,28 @@ func main() {
 					iclResult, err := iclDetector.EvaluateContext(behaviorCtx)
 					if err == nil {
 						report.LLMICLEvaluations = append(report.LLMICLEvaluations, iclResult)
+
 						if iclResult.Result.IsAttack {
+							techID := "TXXXX"
+							severity := "high"
 							techSummary := "Multiple"
 							if len(iclResult.Result.Findings) > 0 {
-								techSummary = fmt.Sprintf("%s (%s)", iclResult.Result.Findings[0].TechniqueID, iclResult.Result.Findings[0].AttackName)
+								techID = iclResult.Result.Findings[0].TechniqueID
+								severity = iclResult.Result.Findings[0].Severity
+								techSummary = fmt.Sprintf("%s (%s)", techID, iclResult.Result.Findings[0].AttackName)
 							}
-							fmt.Printf("\n🤖 [LLM ICL ALERT] Engine: %s (Status: %s) MITRE Technique: %s\n", iclResult.Engine, iclResult.EvaluationStatus, techSummary)
-							if len(iclResult.Result.Findings) > 0 {
-								fmt.Printf("   💡 Reasoning: %s\n", iclResult.Result.Findings[0].Reasoning)
-							}
-							fmt.Printf("   ⚙️  Model: %s\n\n", iclResult.ModelUsed)
-						} else {
-							fmt.Printf("🟢 [LLM ICL NORMAL] Engine: %s (Status: %s) Behavior context evaluated as legitimate\n", iclResult.Engine, iclResult.EvaluationStatus)
-						}
-					}
-				}
-			}
-		}
 
-		// Process remaining events in buffer for LLM
-		if *enableLLM && !contextBuilder.IsFull() {
-			behaviorCtx := contextBuilder.BuildContext()
-			if behaviorCtx != "No behavior recorded." {
-				iclResult, err := iclDetector.EvaluateContext(behaviorCtx)
-				if err == nil {
-					report.LLMICLEvaluations = append(report.LLMICLEvaluations, iclResult)
-					if iclResult.Result.IsAttack {
-						fmt.Printf("\n🤖 [LLM ICL ALERT - Final Window] Engine: %s (Status: %s)\n", iclResult.Engine, iclResult.EvaluationStatus)
-						if len(iclResult.Result.Findings) > 0 {
-							fmt.Printf("   💡 Reasoning: %s\n\n", iclResult.Result.Findings[0].Reasoning)
+							// Check Stage 2 Alert Cooldown
+							if anomalyEvaluator.ShouldAlert(session.CorrelationKey(), techID, severity, ev.TS) {
+								fmt.Printf("\n🤖 [LLM ICL ALERT] Key: %s | Engine: %s (Status: %s) | Anomaly Score: %d/32\n", session.CorrelationKey(), iclResult.Engine, iclResult.EvaluationStatus, stats.TotalScore)
+								fmt.Printf("   🎯 Technique: %s | Severity: %s\n", techSummary, severity)
+								if len(iclResult.Result.Findings) > 0 {
+									fmt.Printf("   💡 Reasoning: %s\n", iclResult.Result.Findings[0].Reasoning)
+								}
+								fmt.Printf("   ⚙️  Model: %s (Fingerprint: %s)\n\n", iclResult.ModelUsed, fingerprint)
+							}
+						} else {
+							fmt.Printf("🟢 [LLM ICL NORMAL] Key: %s | Engine: %s | Anomaly Score: %d/32\n", session.CorrelationKey(), iclResult.Engine, stats.TotalScore)
 						}
 					}
 				}
@@ -163,6 +180,9 @@ func main() {
 	}
 
 	report.TotalLogsAnalyzed = totalLogs
+	if sessionManager != nil {
+		report.ActiveSessions = sessionManager.ActiveSessionsCount()
+	}
 
 	// Save JSON report
 	reportData, err := json.MarshalIndent(report, "", "  ")
