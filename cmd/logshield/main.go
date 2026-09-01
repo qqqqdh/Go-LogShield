@@ -135,17 +135,25 @@ func main() {
 
 				if shouldEval {
 					behaviorCtx := session.BuildContext()
+					promptInput := llm.PromptInput{
+						CorrelationKey: session.CorrelationKey(),
+						Service:        session.Service,
+						SourceIP:       session.IP,
+						TotalEvents:    len(session.Events),
+						Stats:          stats,
+						BehaviorContext: behaviorCtx,
+					}
 					promptCount++
 
 					if *printPrompt && promptCount == 1 {
 						generator := llm.NewPromptGenerator()
-						fullPrompt := generator.GeneratePrompt(behaviorCtx)
+						fullPrompt := generator.GeneratePromptWithInput(promptInput)
 						fmt.Println("==================== [GENERATED LLM PROMPT (PROTOTYPE VERIFICATION)] ====================")
 						fmt.Println(fullPrompt)
 						fmt.Println("=========================================================================================")
 					}
 
-					iclResult, err := iclDetector.EvaluateContext(behaviorCtx)
+					iclResult, err := iclDetector.EvaluateContextWithInput(promptInput)
 					if err == nil {
 						report.LLMICLEvaluations = append(report.LLMICLEvaluations, iclResult)
 

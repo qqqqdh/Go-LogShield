@@ -57,3 +57,34 @@ func TestGeneratePrompt(t *testing.T) {
 		t.Errorf("Prompt missing XML behavior_context fencing")
 	}
 }
+
+func TestGeneratePromptWithInput_ComputedFeatures(t *testing.T) {
+	gen := NewPromptGenerator()
+	input := PromptInput{
+		CorrelationKey: "192.168.1.50|ssh|epoch-1",
+		Service:        "ssh",
+		SourceIP:       "192.168.1.50",
+		TotalEvents:    5,
+		Stats: AnomalyStats{
+			FailedLoginCount:  4,
+			DistinctUserCount: 3,
+			TotalScore:        13,
+		},
+		BehaviorContext: "(1) At 14:00:01, IP 192.168.1.50 performed service=ssh action=login status=failed user=root",
+	}
+
+	prompt := gen.GeneratePromptWithInput(input)
+
+	if !strings.Contains(prompt, "=== COMPUTED STATISTICAL FEATURES ===") {
+		t.Errorf("Prompt missing COMPUTED STATISTICAL FEATURES header")
+	}
+	if !strings.Contains(prompt, "Correlation Key: 192.168.1.50|ssh|epoch-1") {
+		t.Errorf("Prompt missing Correlation Key feature line")
+	}
+	if !strings.Contains(prompt, "Pre-computed Anomaly Score: 13 / 32") {
+		t.Errorf("Prompt missing Anomaly Score feature line")
+	}
+	if !strings.Contains(prompt, "Example 2 (Borderline / Suspicious - Single Typo)") {
+		t.Errorf("Prompt missing 3-tier Few-Shot Borderline example")
+	}
+}

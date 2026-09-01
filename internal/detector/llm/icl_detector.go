@@ -174,7 +174,14 @@ func NewICLDetectorWithClient(config ICLDetectorConfig, client InferenceClient) 
 
 // EvaluateContext evaluates a behavior context with strict parsing, 1-step retry, and envelope wrapping.
 func (d *ICLDetector) EvaluateContext(behaviorContext string) (ICLResult, error) {
-	prompt := d.generator.GeneratePrompt(behaviorContext)
+	return d.EvaluateContextWithInput(PromptInput{
+		BehaviorContext: behaviorContext,
+	})
+}
+
+// EvaluateContextWithInput evaluates a full PromptInput including computed statistical features.
+func (d *ICLDetector) EvaluateContextWithInput(input PromptInput) (ICLResult, error) {
+	prompt := d.generator.GeneratePromptWithInput(input)
 	ctx, cancel := context.WithTimeout(context.Background(), d.config.Timeout)
 	defer cancel()
 
@@ -187,7 +194,7 @@ func (d *ICLDetector) EvaluateContext(behaviorContext string) (ICLResult, error)
 		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
 			status = StatusTimeout
 		}
-		return d.fallbackEvaluate(behaviorContext, err, status)
+		return d.fallbackEvaluate(input.BehaviorContext, err, status)
 	}
 
 	payload, parseErr, schemaErr := d.parseAndValidate(rawResp)
