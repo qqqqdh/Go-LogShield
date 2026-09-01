@@ -28,6 +28,7 @@ func main() {
 	ollamaURL := flag.String("ollama-url", "http://localhost:11434", "Ollama API Endpoint URL")
 	llmModel := flag.String("llm-model", "llama3.1:8b", "LLM Model Name for In-Context Learning")
 	windowSize := flag.Int("window-size", 5, "Sliding window size (event count) for behavior context aggregation")
+	printPrompt := flag.Bool("print-prompt", false, "Print the full generated LLM prompt to stdout for verification")
 	reportFile := flag.String("report", "report.json", "Output JSON report file path")
 	flag.Parse()
 
@@ -69,6 +70,7 @@ func main() {
 	}
 
 	totalLogs := 0
+	promptCount := 0
 
 	// 4. Iterate over log files
 	for _, file := range files {
@@ -109,15 +111,31 @@ func main() {
 				contextBuilder.AddEvent(ev)
 				if contextBuilder.IsFull() {
 					behaviorCtx := contextBuilder.BuildContext()
+					promptCount++
+
+					if *printPrompt && promptCount == 1 {
+						generator := llm.NewPromptGenerator()
+						fullPrompt := generator.GeneratePrompt(behaviorCtx)
+						fmt.Println("==================== [GENERATED LLM PROMPT (PROTOTYPE VERIFICATION)] ====================")
+						fmt.Println(fullPrompt)
+						fmt.Println("=========================================================================================")
+					}
+
 					iclResult, err := iclDetector.EvaluateContext(behaviorCtx)
 					if err == nil {
 						report.LLMICLEvaluations = append(report.LLMICLEvaluations, iclResult)
-						if iclResult.IsAttack {
-							fmt.Printf("\n🤖 [LLM ICL ALERT] MITRE Technique: %s (%s)\n", iclResult.TechniqueID, iclResult.AttackName)
-							fmt.Printf("   💡 Reasoning: %s\n", iclResult.Reasoning)
+						if iclResult.Result.IsAttack {
+							techSummary := "Multiple"
+							if len(iclResult.Result.Findings) > 0 {
+								techSummary = fmt.Sprintf("%s (%s)", iclResult.Result.Findings[0].TechniqueID, iclResult.Result.Findings[0].AttackName)
+							}
+							fmt.Printf("\n🤖 [LLM ICL ALERT] Engine: %s (Status: %s) MITRE Technique: %s\n", iclResult.Engine, iclResult.EvaluationStatus, techSummary)
+							if len(iclResult.Result.Findings) > 0 {
+								fmt.Printf("   💡 Reasoning: %s\n", iclResult.Result.Findings[0].Reasoning)
+							}
 							fmt.Printf("   ⚙️  Model: %s\n\n", iclResult.ModelUsed)
 						} else {
-							fmt.Printf("🟢 [LLM ICL NORMAL] Behavior context evaluated as legitimate (%s)\n", iclResult.Reasoning)
+							fmt.Printf("🟢 [LLM ICL NORMAL] Engine: %s (Status: %s) Behavior context evaluated as legitimate\n", iclResult.Engine, iclResult.EvaluationStatus)
 						}
 					}
 				}
@@ -131,9 +149,11 @@ func main() {
 				iclResult, err := iclDetector.EvaluateContext(behaviorCtx)
 				if err == nil {
 					report.LLMICLEvaluations = append(report.LLMICLEvaluations, iclResult)
-					if iclResult.IsAttack {
-						fmt.Printf("\n🤖 [LLM ICL ALERT - Final Window] MITRE Technique: %s (%s)\n", iclResult.TechniqueID, iclResult.AttackName)
-						fmt.Printf("   💡 Reasoning: %s\n\n", iclResult.Reasoning)
+					if iclResult.Result.IsAttack {
+						fmt.Printf("\n🤖 [LLM ICL ALERT - Final Window] Engine: %s (Status: %s)\n", iclResult.Engine, iclResult.EvaluationStatus)
+						if len(iclResult.Result.Findings) > 0 {
+							fmt.Printf("   💡 Reasoning: %s\n\n", iclResult.Result.Findings[0].Reasoning)
+						}
 					}
 				}
 			}
